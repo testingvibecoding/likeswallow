@@ -47,6 +47,9 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
 #rollTag i.tg.off{opacity:.34;border-color:transparent;background:transparent;color:var(--dim2)}
 #rollTag i.tg.off .sw{filter:grayscale(1)}
 #lgMic{flex:1.55;letter-spacing:0}
+#micLv{display:inline-block;min-width:40px;text-align:right;font-variant-numeric:tabular-nums;
+       color:var(--dim2);transition:color .1s}
+#micLv.hot{color:var(--you)}
 #tgM{border-color:#2c4470!important} #tgF{border-color:#5c2f3a!important}
 #tgM.off,#tgF.off{border-color:transparent!important}
 .sw{display:inline-block;width:16px;height:4px;border-radius:2px;vertical-align:3px;margin-right:5px}
@@ -155,8 +158,7 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
     <div id="rollTag">
       <i class="tg" id="tgM" title="显示/隐藏男声音准条"><span class="sw" style="background:var(--male)"></span>男</i>
       <i class="tg" id="tgF" title="显示/隐藏女声音准条"><span class="sw" style="background:var(--female)"></span>女</i>
-      <i><span class="sw" style="background:repeating-linear-gradient(50deg,var(--male) 0 3px,var(--female) 3px 6px)"></span>不可分</i>
-      <i id="lgMic"><span class="sw" style="background:var(--you)"></span>麦克风输入</i>
+      <i id="lgMic"><span class="sw" style="background:var(--you)"></span>麦克风输入<span id="micLv"></span></i>
     </div>
   </div>
 
@@ -689,35 +691,51 @@ function paint(){
 let micOn=false, ana=null, micBuf=null, micStream=null;
 async function micToggle(){
   if(micOn){ micOn=false; $('bMic').classList.remove('on');
-    if(micStream) micStream.getTracks().forEach(t=>t.stop()); micStream=null; ana=null; return; }
+    if(micStream) micStream.getTracks().forEach(t=>t.stop()); micStream=null; ana=null;
+    $('micLv').textContent=''; $('micLv').classList.remove('hot'); return; }
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:{
       echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
   }catch(e){ toast('拿不到麦克风：'+(e.name||e.message)); return; }
   const src=ctx.createMediaStreamSource(micStream);
-  ana=ctx.createAnalyser(); ana.fftSize=2048; src.connect(ana);
+  ana=ctx.createAnalyser(); ana.fftSize=2048; ana.smoothingTimeConstant=0;
+  src.connect(ana);
+  const sink=ctx.createGain(); sink.gain.value=0; ana.connect(sink); sink.connect(ctx.destination);
   micBuf=new Float32Array(ana.fftSize);
   micOn=true; $('bMic').classList.add('on');
+  toast('麦克风已开，左上角会显示输入电平');
 }
-let micN=0;
+let micLast=-1, micLvT=0;
 function micTick(){
   if(!micOn||!ana) return;
-  if((micN++&1)) return;
   ana.getFloatTimeDomainData(micBuf);
   const gainv=+$('mg').value, N=micBuf.length;
   let rms=0; for(let i=0;i<N;i++){ micBuf[i]*=gainv; rms+=micBuf[i]*micBuf[i]; }
   rms=Math.sqrt(rms/N);
+  const GATE=0.0035;
+  if(performance.now()-micLvT>90){        // 左上角实时显示输入电平，好判断是不是根本没进声音
+    micLvT=performance.now();
+    $('micLv').textContent=(rms>1e-6?Math.max(-99,Math.round(20*Math.log10(rms))):-99)+'dB';
+    $('micLv').classList.toggle('hot',rms>=GATE);
+  }
   const idx=Math.floor((position()+ofs())*FPS);
   if(idx<0||idx>=mine.length) return;
-  if(rms<0.0035){ mine[idx]=NaN; return; }
-  const sr=ctx.sampleRate, minP=Math.floor(sr/800), maxP=Math.floor(sr/70);
+  if(rms<GATE){ mine[idx]=NaN; micLast=-1; return; }
+  const sr=ctx.sampleRate, minP=Math.max(2,Math.floor(sr/800)), maxP=Math.floor(sr/70);
   let best=-1,bv=0;
   for(let p=minP;p<=maxP;p++){
-    let s=0; for(let i=0;i<N-p;i+=4) s+=micBuf[i]*micBuf[i+p];
-    s/=(N-p); if(s>bv){bv=s;best=p;}
+    let s=0, n=0;
+    for(let i=0;i<N-p;i+=4){ s+=micBuf[i]*micBuf[i+p]; n++; }
+    s/=n;                                 // 之前除的是 (N-p)，而实际只累加了 1/4 的样点，
+    if(s>bv){ bv=s; best=p; }             // 结果自相关被压到真值的四分之一，有声判定永远不过
   }
-  if(best<0||bv<rms*rms*.28){ mine[idx]=NaN; return; }
-  mine[idx]=69+12*Math.log2((sr/best)/440);
+  if(best<0||bv<rms*rms*.30){ mine[idx]=NaN; micLast=-1; return; }
+  const m=69+12*Math.log2((sr/best)/440);
+  if(m<36||m>96){ mine[idx]=NaN; micLast=-1; return; }
+  // 检测帧率(≈60Hz)与音准区帧格(40Hz)不同步，中间会漏格；把上一格到这一格之间补上，
+  // 否则孤立的单点画不出线（画布上单点路径不着色）
+  if(micLast>=0&&idx>micLast&&idx-micLast<=12) for(let k=micLast+1;k<idx;k++) mine[k]=m;
+  mine[idx]=m; micLast=idx;
 }
 
 /* ================= 主循环 ================= */
