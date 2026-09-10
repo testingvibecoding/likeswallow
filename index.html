@@ -182,7 +182,7 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
   <div class="row"><label>麦克风增益</label><input type="range" id="mg" min="1" max="20" value="5"><span class="v" id="mgV">×5</span></div>
   <div class="note">
     单独听一个声部时电平已自动补偿：只留男声 +3dB，只留女声 +4dB。总线上有限幅器防止削波。<br>
-    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。歌词区上下滑动选句、松手即从该句播放；音准区左右拖动可快进快退，松手续播。红蓝相绞的双绞线是分离工具未能拆开两人的地方（全曲约 48 秒），那里只有主导音高，不代表两人同音。短于 1/8 秒的碎条已按音高就近并入相邻横条。<br>
+    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。歌词区上下滑动选句、松手即从该句播放；音准区左右拖动可快进快退，松手续播。红蓝相绞的双绞线是分离工具未能拆开两人、或两人唱在同一个音上的段落，那里只有主导音高。三种画法不会在同一帧重叠。短于 1/8 秒的碎条按音高就近并入相邻横条，并不进去的直接丢弃。<br>
     坐标按 1=D 标注。歌词偏移用来修正不同浏览器解码音频的起点差异。
   </div>
 </div></div>
@@ -217,7 +217,7 @@ const FPS=PD.fps;
 
 /* ================= 音频 ================= */
 const MOBILE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-let ctx,master,limiter,gain={},buf={},srcs={},playing=false,t0=0,pos=0;
+let ctx,master,limiter,gain={},buf={},srcs={},playing=false,t0=0,pos=0,startOff=0;
 const BOOST={voc:1, male:Math.pow(10,3/20), female:Math.pow(10,4/20)};
 let on={acc:true,male:true,female:true};
 
@@ -258,7 +258,7 @@ function ensureSrc(k){
 }
 function startAll(off){
   stopAll();
-  const at=ctx.currentTime+.08; t0=at-off; playing=true;
+  const at=ctx.currentTime+.08; t0=at-off; startOff=off; playing=true;
   for(const k in buf){ const s=ctx.createBufferSource(); s.buffer=buf[k];
     s.connect(gain[k]); s.start(at,off); srcs[k]=s; }
   applyGains(0);            // 重启后按当前开关重申一遍绝对增益，循环/跳转都不改变声部状态
@@ -266,7 +266,8 @@ function startAll(off){
 }
 function stopAll(){ for(const k in srcs){ try{srcs[k].stop()}catch(e){} } srcs={}; }
 function pause(){ pos=position(); stopAll(); playing=false; $('play').textContent='▶'; }
-function position(){ return playing?Math.max(0,Math.min(ctx.currentTime-t0,DUR)):pos; }
+function position(){                       // 起播前的 80ms 调度提前量会让位置落回上一句，夹住
+  return playing?Math.min(DUR,Math.max(startOff,ctx.currentTime-t0)):pos; }
 function seek(t){ pos=Math.max(0,Math.min(t,DUR)); if(playing) startAll(pos); else paint(); }
 function toggle(){ if(!ctx)return; if(ctx.state!=='running')ctx.resume();
   if(!buf.acc){ toast('还在解码，稍等'); return; }
@@ -320,7 +321,7 @@ function renderLyr(){
 function jumpTo(i){
   i=Math.max(0,Math.min(LY.length-1,i));
   curLine=i; lyrY=idxToY(i); renderLyr();
-  seek(LY[i].start-ofs()); if(!playing) toggle();
+  goLine(i); if(!playing) toggle();
 }
 (function lyrGestures(){
   const box=$('lyr');
@@ -353,6 +354,8 @@ function buildIndex(){
     b.appendChild(d); });
 }
 const ofs=()=>(+$('ofs').value)/1000;
+const EPS=0.004;              // 跳句落点比句首晚 4ms，避开浮点边界
+const goLine=i=>seek(LY[i].start-ofs()+EPS);
 function fmt(t){ t=Math.max(0,t); return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0'); }
 
 /* ================= 音准区 ================= */
@@ -399,6 +402,7 @@ const QM=quantize(PM,ALM), QF=quantize(PF,ALF), QD=quantize(PDU,ALD);
 /* --- 同音高的连续帧合成一条小横条 --- */
 const SHORT=Math.round(.125*FPS);   // 1/8 秒
 const NEAR=Math.round(.30*FPS);     // 相邻判定：空隙不超过 0.3 秒
+const GAPJ=SHORT;                   // 同音高之间短于 1/8 秒的缝直接填平
 function mergeShort(list){
   for(;;){
     let k=-1,best=1e9;
@@ -421,18 +425,142 @@ function mergeShort(list){
   }
   return list.filter(o=>o.e-o.s>=2);   // 孤立且不足 50ms 的当噪点丢掉
 }
+function joinGaps(list,skipDup){     // 同音高、缝隙 <1/8 秒 → 连成一条
+  const out=[];
+  for(const o of list){
+    const p=out[out.length-1];
+    let ok = p && p.m===o.m && (o.s-p.e)<GAPJ && (o.s-p.e)>=0;
+    if(ok&&skipDup){ for(let i=p.e;i<o.s;i++) if(isDup(i)){ ok=false; break; } }
+    if(ok) p.e=Math.max(p.e,o.e); else out.push(o);
+  }
+  return out;
+}
 function toSegs(q,skipDup){
   const out=[]; let cur=null;
   for(let i=0;i<NF;i++){
     const v=(skipDup&&isDup(i))?-999:q[i];
     if(v===-999){ if(cur){out.push(cur);cur=null;} continue; }
-    if(cur&&cur.m===v&&i-cur.e<=2) cur.e=i+1;
+    if(cur&&cur.m===v&&i-cur.e<GAPJ) cur.e=i+1;
     else { if(cur)out.push(cur); cur={s:i,e:i+1,m:v}; }
   }
   if(cur)out.push(cur);
-  return mergeShort(out);
+  return joinGaps(mergeShort(out),skipDup);   // 合并碎条后可能又出现新的同高小缝，再填一次
 }
-const SM=toSegs(QM,true), SF=toSegs(QF,true), SD=toSegs(QD,false);
+const NONE=-999;
+function raster(S){ const a=new Int16Array(NF).fill(NONE);
+  for(const o of S) for(let i=o.s;i<o.e;i++) a[i]=o.m; return a; }
+const BM=raster(toSegs(QM,true)), BF=raster(toSegs(QF,true)), BD=raster(toSegs(QD,false));
+const RM=new Int16Array(NF), RF=new Int16Array(NF), RD=new Int16Array(NF);
+const MINBRAID=Math.round(.25*FPS), ADJ=Math.round(.20*FPS), MAXFILL=Math.round(1.5*FPS),
+      MAXRUN=Math.round(8*FPS), SHORTTAIL=Math.round(.6*FPS);
+function segsOf(a){
+  const out=[]; let cur=null;
+  for(let i=0;i<NF;i++){ const v=a[i];
+    if(v===NONE){ if(cur){out.push(cur);cur=null;} continue; }
+    if(cur&&cur.m===v&&i===cur.e) cur.e=i+1;
+    else { if(cur)out.push(cur); cur={s:i,e:i+1,m:v}; }
+  }
+  if(cur)out.push(cur); return out;
+}
+function fromRaster(a){
+  const out=[]; let cur=null;
+  for(let i=0;i<NF;i++){ const v=a[i];
+    if(v===NONE){ if(cur){out.push(cur);cur=null;} continue; }
+    if(cur&&cur.m===v&&i===cur.e) cur.e=i+1;
+    else { if(cur)out.push(cur); cur={s:i,e:i+1,m:v}; }
+  }
+  if(cur)out.push(cur);
+  const res=[];
+  for(const o of out){
+    const p=res[res.length-1];
+    const ok=p&&p.m===o.m&&(o.s-p.e)>=0&&(o.s-p.e)<GAPJ;
+    if(ok) p.e=Math.max(p.e,o.e); else res.push(o);
+  }
+  return res.filter(o=>o.e-o.s>=SHORT);
+}
+const ISOT=Math.round(.35*FPS);
+function dropIsolated(S){        // 孤立碎条：自身短于 0.35 秒，且前后 0.35 秒内本声部没有音高相近的横条
+  return S.filter((o,k)=>{
+    if(o.e-o.s>=ISOT) return true;
+    return S.some((q,j)=>j!==k&&Math.abs(q.m-o.m)<=4&&q.s<o.e+ISOT&&q.e>o.s-ISOT);
+  });
+}
+let SM=[],SF=[],SD=[];
+const UNI=new Uint8Array(NF);        // 标记"由红蓝同高合成"的绞线帧
+function buildBars(){
+  RM.set(BM); RF.set(BF); RD.set(BD); UNI.fill(0);
+  /* 1) 帧级裁决：三种画法不许在同一帧重叠 */
+  for(let i=0;i<NF;i++){
+    const m=RM[i], f=RF[i], d=RD[i];
+    if(d!==NONE){
+      if(m!==NONE&&f!==NONE){ RD[i]=NONE; }
+      else if(m!==NONE){ if(m===d) RM[i]=NONE; else { RF[i]=d; RD[i]=NONE; } }
+      else if(f!==NONE){ if(f===d) RF[i]=NONE; else { RM[i]=d; RD[i]=NONE; } }
+    }
+  }
+  /* 1b) 红蓝相差 ≤1 半音且时间上有重叠 → 整段合成一条绞线：
+         高度取红线，范围取蓝红两条的并集（不是只合重叠的那一小截） */
+  {
+    const bm=segsOf(RM), bf=segsOf(RF);
+    for(const a of bm) for(const b of bf){
+      if(Math.abs(a.m-b.m)>1) continue;
+      if(Math.min(a.e,b.e)-Math.max(a.s,b.s)<2) continue;   // 至少重叠 2 帧
+      const s0=Math.min(a.s,b.s), e0=Math.max(a.e,b.e);
+      for(let i=s0;i<e0;i++){ RD[i]=b.m; RM[i]=NONE; RF[i]=NONE; UNI[i]=1; }
+    }
+  }
+  /* 2) 一丁点大的绞线：并入贴着的同高红/蓝，孤立的去掉 */
+  for(const o of segsOf(RD)){
+    if(o.e-o.s>=MINBRAID) continue;
+    let uni=false;                     // 红蓝同高合出来的绞线不算"碎绞线"，再短也保留
+    for(let i=o.s;i<o.e;i++) if(UNI[i]){ uni=true; break; }
+    if(uni) continue;
+    let tgt=null;
+    for(const R of [RM,RF]){
+      for(let j=Math.max(0,o.s-ADJ);j<Math.min(NF,o.e+ADJ);j++){
+        if(j>=o.s&&j<o.e) continue;
+        if(R[j]!==NONE&&Math.abs(R[j]-o.m)<=1){ tgt=[R,R[j]]; break; }
+      }
+      if(tgt) break;
+    }
+    for(let i=o.s;i<o.e;i++) RD[i]=NONE;
+    if(tgt) for(let i=o.s;i<o.e;i++) tgt[0][i]=tgt[1];
+  }
+  /* 3) 两端绞线、中间单色 → 补成绞线 */
+  const braidNear=(from,dir)=>{
+    for(let k=1;k<=ADJ;k++){ const j=from+dir*k; if(j<0||j>=NF) break; if(RD[j]!==NONE) return RD[j]; }
+    return null;
+  };
+  for(const R of [RM,RF]) for(const o of segsOf(R)){
+    if(o.e-o.s>MAXFILL) continue;
+    const L=braidNear(o.s,-1), Rt=braidNear(o.e-1,1);
+    if(L!==null&&Rt!==null&&Math.abs(L-o.m)<=1&&Math.abs(Rt-o.m)<=1)
+      for(let i=o.s;i<o.e;i++){ RD[i]=o.m; R[i]=NONE; }
+  }
+  /* 4) 同一高度连成一串（允许 <1/8 秒小缝）里只要出现过绞线，整串归绞线；串长上限 3 秒 */
+  const cls=i=>RD[i]!==NONE?2:RM[i]!==NONE?0:RF[i]!==NONE?1:-1;
+  const val=i=>RD[i]!==NONE?RD[i]:RM[i]!==NONE?RM[i]:RF[i];
+  const MAXRUN3=Math.round(3*FPS);
+  let i2=0;
+  while(i2<NF){
+    if(cls(i2)<0){ i2++; continue; }
+    const m=val(i2); let j=i2+1,last=i2;
+    while(j<NF){
+      if(cls(j)>=0){ if(val(j)!==m) break; last=j; j++; continue; }
+      let k=j; while(k<NF&&cls(k)<0) k++;
+      if(k<NF&&k-j<GAPJ&&val(k)===m){ j=k; continue; }
+      break;
+    }
+    const e=last+1;
+    let braid=false;
+    for(let x=i2;x<e;x++) if(RD[x]!==NONE){ braid=true; break; }
+    if(braid&&e-i2<=MAXRUN3)
+      for(let x=i2;x<e;x++) if(cls(x)>=0){ RD[x]=m; RM[x]=NONE; RF[x]=NONE; }
+    i2=e;
+  }
+  SM=dropIsolated(fromRaster(RM)); SF=dropIsolated(fromRaster(RF)); SD=dropIsolated(fromRaster(RD));
+}
+buildBars();
 
 function rr(x,w,y,c,h){ h=h||5; g.fillStyle=c; g.beginPath();
   if(g.roundRect) g.roundRect(x,y-h/2,w,h,Math.min(h/2,Math.max(w/2,.5))); else g.rect(x,y-h/2,w,h);
@@ -580,7 +708,7 @@ function micTick(){
 function tick(){
   const raw=position(), t=raw+ofs();
   if(playing){
-    if(loopLine&&curLine>=0&&raw>=LY[curLine].end-ofs()){ seek(LY[curLine].start-ofs()); }
+    if(loopLine&&curLine>=0&&raw>=LY[curLine].end-ofs()){ goLine(curLine); }
     else if(raw>=DUR-.05){
       if(loopAll){ mine.fill(NaN); curLine=-1; seek(0); }
       else { pause(); pos=0; } }
@@ -620,9 +748,9 @@ $('bLoopA').onclick=e=>{ loopAll=!loopAll; e.currentTarget.classList.toggle('on'
   toast(loopLine?'按句循环优先，整曲'+(loopAll?'已开':'已关'):(loopAll?'整曲循环':'循环关闭')); };
 $('bBack').onclick=()=>{ const t=position()+ofs(), i=lineAt(t);
   let k = i<0 ? nearestLine(t) : (t-LY[i].start>1.2 ? i : i-1);
-  seek(LY[Math.max(0,Math.min(k,LY.length-1))].start-ofs()); };
+  k=Math.max(0,Math.min(k,LY.length-1)); curLine=k; goLine(k); };
 $('bFwd').onclick=()=>{ const t=position()+ofs(), i=lineAt(t);
-  const k=(i<0?nearestLine(t):i)+1; if(k<LY.length) seek(LY[k].start-ofs()); };
+  const k=(i<0?nearestLine(t):i)+1; if(k<LY.length){ curLine=k; goLine(k); } };
 $('bMic').onclick=micToggle;
 $('bSet').onclick=()=>$('shSet').classList.add('on');
 $('bIdx').onclick=()=>{ $('shIdx').classList.add('on');
