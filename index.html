@@ -37,10 +37,19 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
 #roll{flex:1 1 auto;min-height:120px;position:relative;background:var(--panel2);touch-action:none;
       border:1px solid var(--line);border-radius:12px;overflow:hidden}
 #cv{width:100%;height:100%;display:block;touch-action:none}
-#rollTag{position:absolute;left:10px;top:8px;font-size:10px;color:var(--dim2);letter-spacing:.08em;
-         pointer-events:none;display:flex;gap:10px}
-#rollTag i{font-style:normal}
-.sw{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:3px;margin-right:4px}
+#rollTag{position:absolute;left:7px;right:7px;top:6px;font-size:11.5px;color:var(--dim2);
+         letter-spacing:.04em;pointer-events:none;display:flex;gap:6px}
+#rollTag i{font-style:normal;flex:1;text-align:center;padding:6px 2px;border-radius:8px;
+           border:1px solid transparent;white-space:nowrap;line-height:1}
+#rollTag i.tg{pointer-events:auto;cursor:pointer;color:var(--tx);border-color:#2b3446;
+              background:rgba(19,26,39,.8);transition:opacity .15s,border-color .15s,background .15s}
+#rollTag i.tg:active{transform:scale(.97)}
+#rollTag i.tg.off{opacity:.34;border-color:transparent;background:transparent;color:var(--dim2)}
+#rollTag i.tg.off .sw{filter:grayscale(1)}
+#lgMic{flex:1.55;letter-spacing:0}
+#tgM{border-color:#2c4470!important} #tgF{border-color:#5c2f3a!important}
+#tgM.off,#tgF.off{border-color:transparent!important}
+.sw{display:inline-block;width:16px;height:4px;border-radius:2px;vertical-align:3px;margin-right:5px}
 
 /* ---- lyrics ---- */
 #lyr{flex:0 0 auto;height:min(34vh,204px);overflow:hidden;position:relative;touch-action:none;
@@ -125,7 +134,8 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
 #toast.on{opacity:1}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 @media (min-height:760px){ #lyr{height:238px} .ln.cur{font-size:25px} }
-@media (max-width:430px){ .byline{display:none} .icb{padding:5px 8px} header{gap:7px} }
+@media (max-width:430px){ .byline{display:none} .icb{padding:5px 8px} header{gap:7px}
+  #rollTag{font-size:10.5px;gap:4px} #rollTag i{padding:6px 1px} .sw{width:13px;margin-right:4px} }
 </style>
 
 </head>
@@ -143,10 +153,10 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
   <div id="roll">
     <canvas id="cv"></canvas>
     <div id="rollTag">
-      <i><span class="sw" style="background:var(--male)"></span>男</i>
-      <i><span class="sw" style="background:var(--female)"></span>女</i>
+      <i class="tg" id="tgM" title="显示/隐藏男声音准条"><span class="sw" style="background:var(--male)"></span>男</i>
+      <i class="tg" id="tgF" title="显示/隐藏女声音准条"><span class="sw" style="background:var(--female)"></span>女</i>
       <i><span class="sw" style="background:repeating-linear-gradient(50deg,var(--male) 0 3px,var(--female) 3px 6px)"></span>不可分</i>
-      <i><span class="sw" style="background:var(--you)"></span>你</i>
+      <i id="lgMic"><span class="sw" style="background:var(--you)"></span>麦克风输入</i>
     </div>
   </div>
 
@@ -182,7 +192,7 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
   <div class="row"><label>麦克风增益</label><input type="range" id="mg" min="1" max="20" value="5"><span class="v" id="mgV">×5</span></div>
   <div class="note">
     单独听一个声部时电平已自动补偿：只留男声 +3dB，只留女声 +4dB。总线上有限幅器防止削波。<br>
-    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。歌词区上下滑动选句、松手即从该句播放；音准区左右拖动可快进快退，松手续播。红蓝相绞的双绞线是分离工具未能拆开两人、或两人唱在同一个音上的段落，那里只有主导音高。三种画法不会在同一帧重叠。短于 1/8 秒的碎条按音高就近并入相邻横条，并不进去的直接丢弃。<br>
+    音准区左上角的「男」「女」可以点，单独控制两条音准条显不显示——这跟下面的声部发声开关是两回事，可以看着男声的线唱、同时听着两个人。只显示一条时，绞线段落会用那个人自己的颜色实心画出来。纵轴缩放始终按两个声部一起算，所以开关音准条时画面不会跳、音高位置固定好记。音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。歌词区上下滑动选句、松手即从该句播放；音准区左右拖动可快进快退，松手续播。红蓝相绞的双绞线是分离工具未能拆开两人、或两人唱在同一个音上的段落，那里只有主导音高。三种画法不会在同一帧重叠。短于 1/8 秒的碎条按音高就近并入相邻横条，并不进去的直接丢弃。<br>
     坐标按 1=D 标注。歌词偏移用来修正不同浏览器解码音频的起点差异。
   </div>
 </div></div>
@@ -368,7 +378,7 @@ addEventListener('resize',()=>{resize();paint();});
 const WINs=()=>+$('win').value;
 const PLAYX=.36;
 const t2x=(t,now)=>(t-now)*W/WINs()+W*PLAYX;
-const p2y=m=>H-14-(m-yLo)/(yHi-yLo)*(H-28);
+const p2y=m=>H-12-(m-yLo)/(yHi-yLo)*(H-46);   // 顶部留 34px 给图例按钮
 const DEG=['1','#1','2','#2','3','4','#4','5','#5','6','#6','7'];   // 1=D
 const NF=PM.length;
 
@@ -609,6 +619,7 @@ function rangeFor(now){
   const a=Math.max(0,Math.floor((now-WINs()*PLAYX)*FPS)), b=Math.min(NF,Math.ceil((now+WINs()*(1-PLAYX))*FPS));
   for(let i=a;i<b;i++){
     const v1=QM[i],v2=QF[i],v3=QD[i];
+    // 纵轴范围始终按两个声部一起算，关掉一边不改变缩放，画面不跳、位置好记
     if(v1>-900){if(v1<lo)lo=v1;if(v1>hi)hi=v1;}
     if(v2>-900){if(v2<lo)lo=v2;if(v2>hi)hi=v2;}
     if(v3>-900){if(v3<lo)lo=v3;if(v3>hi)hi=v3;}
@@ -618,6 +629,7 @@ function rangeFor(now){
   if(hi-lo<9){ const c=(hi+lo)/2; lo=c-4.5; hi=c+4.5; }
   return [lo,hi];
 }
+let showM=true, showF=true;          // 音准条显示开关（与声部发声开关互不影响）
 let mine=new Float32Array(Math.ceil(DUR*FPS)).fill(NaN);
 let rollDrag=null;
 (function rollGestures(){
@@ -660,8 +672,12 @@ function paint(){
   let s0=-1;
   for(let i=a;i<=b;i++){ const d=i<b&&isDup(i);
     if(d&&s0<0)s0=i; if(!d&&s0>=0){ g.fillRect(t2x(s0/FPS,now),0,(i-s0)/FPS*W/WINs(),H); s0=-1; } }
-  drawSegs(SM,now,'#5b9cff'); drawSegs(SF,now,'#ff6b8a');
-  drawSegs(SD,now,null,true);
+  if(showM) drawSegs(SM,now,'#5b9cff');
+  if(showF) drawSegs(SF,now,'#ff6b8a');
+  // 绞线：两条都显示时画双绞；只显示一条时，这段那个人也在唱，就用他自己的实色
+  if(showM&&showF) drawSegs(SD,now,null,true);
+  else if(showM)   drawSegs(SD,now,'#5b9cff');
+  else if(showF)   drawSegs(SD,now,'#ff6b8a');
   drawRun(mine,'#ffc94d',now,3);
   const ci=lineAt(now);
   if(ci>=0){ g.fillStyle='rgba(224,163,74,.5)';
@@ -752,6 +768,10 @@ $('bBack').onclick=()=>{ const t=position()+ofs(), i=lineAt(t);
 $('bFwd').onclick=()=>{ const t=position()+ofs(), i=lineAt(t);
   const k=(i<0?nearestLine(t):i)+1; if(k<LY.length){ curLine=k; goLine(k); } };
 $('bMic').onclick=micToggle;
+$('tgM').onclick=()=>{ showM=!showM; $('tgM').classList.toggle('off',!showM);
+  toast(showM?'显示男声音准条':'隐藏男声音准条'); };
+$('tgF').onclick=()=>{ showF=!showF; $('tgF').classList.toggle('off',!showF);
+  toast(showF?'显示女声音准条':'隐藏女声音准条'); };
 $('bSet').onclick=()=>$('shSet').classList.add('on');
 $('bIdx').onclick=()=>{ $('shIdx').classList.add('on');
   const el=$('idx').children[Math.max(0,curLine)]; if(el)el.scrollIntoView({block:'center'}); };
