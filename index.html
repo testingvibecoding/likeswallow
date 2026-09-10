@@ -34,26 +34,30 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
 .icb.on{color:var(--tx);border-color:var(--acc);background:#2a2113}
 
 /* ---- pitch ---- */
-#roll{flex:1 1 auto;min-height:120px;position:relative;background:var(--panel2);
+#roll{flex:1 1 auto;min-height:120px;position:relative;background:var(--panel2);touch-action:none;
       border:1px solid var(--line);border-radius:12px;overflow:hidden}
-#cv{width:100%;height:100%;display:block}
+#cv{width:100%;height:100%;display:block;touch-action:none}
 #rollTag{position:absolute;left:10px;top:8px;font-size:10px;color:var(--dim2);letter-spacing:.08em;
          pointer-events:none;display:flex;gap:10px}
 #rollTag i{font-style:normal}
 .sw{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:3px;margin-right:4px}
 
 /* ---- lyrics ---- */
-#lyr{flex:0 0 auto;height:min(34vh,210px);overflow:hidden;position:relative;
-     display:flex;flex-direction:column;justify-content:center;gap:2px}
-.ln{font-family:var(--lyric);text-align:center;line-height:1.5;padding:2px 4px;
-    transition:opacity .25s,color .25s,font-size .25s;cursor:pointer;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ln.p2{font-size:14px;opacity:.28}
-.ln.p1{font-size:15px;opacity:.45}
-.ln.cur{font-size:23px;font-weight:700;opacity:1;letter-spacing:.04em}
-.ln.n1{font-size:16px;opacity:.62}
-.ln.n2{font-size:15px;opacity:.42}
-.ln.n3{font-size:14px;opacity:.26}
+#lyr{flex:0 0 auto;height:min(34vh,204px);overflow:hidden;position:relative;touch-action:none;
+     cursor:grab;-webkit-mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
+     mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent)}
+#lyr.grab{cursor:grabbing}
+#lyrIn{position:absolute;left:0;right:0;top:0}
+#lyrMid{position:absolute;left:0;right:0;top:50%;height:34px;margin-top:-17px;
+        border-top:1px solid #1b2434;border-bottom:1px solid #1b2434;pointer-events:none;opacity:0;
+        transition:opacity .2s}
+#lyr.grab #lyrMid{opacity:1}
+.ln{height:34px;display:flex;align-items:center;justify-content:center;font-family:var(--lyric);
+    font-size:15px;opacity:.30;white-space:nowrap;overflow:hidden;padding:0 8px;
+    transition:opacity .18s,font-size .18s}
+.ln.d1{opacity:.52;font-size:16px}
+.ln.d2{opacity:.32}
+.ln.cur{font-size:22px;font-weight:700;opacity:1;letter-spacing:.04em}
 .vM{color:var(--male)} .vF{color:var(--female)} .vH{color:var(--tx)}
 .ln .tag{font-size:.62em;letter-spacing:.1em;opacity:.7;margin-right:.45em;font-family:var(--ui)}
 
@@ -120,7 +124,8 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
        opacity:0;transition:opacity .25s;pointer-events:none;z-index:30;max-width:88vw;text-align:center}
 #toast.on{opacity:1}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-@media (min-height:760px){ #lyr{height:230px} .ln.cur{font-size:26px} }
+@media (min-height:760px){ #lyr{height:238px} .ln.cur{font-size:25px} }
+@media (max-width:430px){ .byline{display:none} .icb{padding:5px 8px} header{gap:7px} }
 </style>
 
 </head>
@@ -130,8 +135,9 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
     <h1>如燕</h1><span class="byline">跟唱练习</span>
     <span class="spacer"></span>
     <button class="icb" id="bIdx">歌词</button>
-    <button class="icb" id="bLoop" title="循环：关 → 整首 → 单句">↻ 关</button>
-    <button class="icb" id="bSet">设置</button>
+    <button class="icb" id="bLoopL" title="循环当前句">↻句</button>
+    <button class="icb" id="bLoopA" title="整曲循环">↻全</button>
+    <button class="icb" id="bSet">⚙</button>
   </header>
 
   <div id="roll">
@@ -139,12 +145,12 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
     <div id="rollTag">
       <i><span class="sw" style="background:var(--male)"></span>男</i>
       <i><span class="sw" style="background:var(--female)"></span>女</i>
-      <i><span class="sw" style="background:linear-gradient(var(--male) 50%,var(--female) 50%)"></span>不可分</i>
+      <i><span class="sw" style="background:repeating-linear-gradient(50deg,var(--male) 0 3px,var(--female) 3px 6px)"></span>不可分</i>
       <i><span class="sw" style="background:var(--you)"></span>你</i>
     </div>
   </div>
 
-  <div id="lyr"></div>
+  <div id="lyr"><div id="lyrIn"></div><div id="lyrMid"></div></div>
 
   <div id="prog">
     <span class="tt" id="tc">0:00</span>
@@ -176,7 +182,7 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
   <div class="row"><label>麦克风增益</label><input type="range" id="mg" min="1" max="20" value="5"><span class="v" id="mgV">×5</span></div>
   <div class="note">
     单独听一个声部时电平已自动补偿：只留男声 +3dB，只留女声 +4dB。总线上有限幅器防止削波。<br>
-    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。上蓝下红的双色条是分离工具未能拆开两人的地方（全曲约 48 秒），那里只有主导音高，不代表两人同音。<br>
+    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。歌词区上下滑动选句、松手即从该句播放；音准区左右拖动可快进快退，松手续播。红蓝相绞的双绞线是分离工具未能拆开两人的地方（全曲约 48 秒），那里只有主导音高，不代表两人同音。短于 1/8 秒的碎条已按音高就近并入相邻横条。<br>
     坐标按 1=D 标注。歌词偏移用来修正不同浏览器解码音频的起点差异。
   </div>
 </div></div>
@@ -231,7 +237,6 @@ async function boot(){
     gain[k]=ctx.createGain(); gain[k].gain.value=0; gain[k].connect(master);
   }
   paint();                                  // 先把静态画面画出来
-  layoutLyrics(0);
   const order=[['acc','伴奏'],['voc','人声'],['male','男声'],['female','女声']];
   let done=0;
   for(const [k,nm] of order){
@@ -285,30 +290,66 @@ function applyGains(ms){
 }
 
 /* ================= 歌词 ================= */
-let curLine=-1, loopMode=0;   // 0关 1整首 2单句
+let curLine=-1, loopLine=false, loopAll=false;   // 同时点亮时按句循环优先
 function lineAt(t){ for(let i=0;i<LY.length;i++){ if(t>=LY[i].start&&t<LY[i].end) return i; } return -1; }
 function nearestLine(t){ let b=0; for(let i=0;i<LY.length;i++) if(LY[i].start<=t+.15) b=i; return b; }
-function layoutLyrics(ci){
-  const box=$('lyr'); box.innerHTML='';
-  const slots=[[-2,'p2'],[-1,'p1'],[0,'cur'],[1,'n1'],[2,'n2'],[3,'n3']];
-  const base = ci>=0?ci:nearestLine(position()+ofs());
-  for(const [d,cls] of slots){
-    const k=base+d, el=document.createElement('div');
-    el.className='ln '+cls;
-    if(k>=0&&k<LY.length){
-      const L=LY[k]; el.classList.add('v'+L.voice);
-      el.innerHTML='<span class="tag">'+({M:'男',F:'女',H:'合'})[L.voice]+'</span>'+L.text;
-      el.onclick=()=>{ seek(L.start-ofs()); if(!playing) toggle(); };
-    }else el.innerHTML='&nbsp;';
-    box.appendChild(el);
+const TAG={M:'男',F:'女',H:'合'};
+const ROWH=34;
+let lyrIn=null, lyrY=0, lyrDrag=null, frontIdx=-1;
+function buildLyr(){
+  lyrIn=$('lyrIn'); lyrIn.innerHTML='';
+  LY.forEach((L,i)=>{ const d=document.createElement('div');
+    d.className='ln v'+L.voice; d.dataset.i=i;
+    d.innerHTML='<span class="tag">'+TAG[L.voice]+'</span>'+L.text;
+    lyrIn.appendChild(d); });
+}
+const lyrMid=()=>$('lyr').clientHeight/2;
+const idxToY=i=>lyrMid()-(i*ROWH+ROWH/2);
+const yToIdx=y=>Math.round((lyrMid()-y-ROWH/2)/ROWH);
+function renderLyr(){
+  lyrIn.style.transform='translateY('+lyrY.toFixed(1)+'px)';
+  const f=Math.max(0,Math.min(LY.length-1,yToIdx(lyrY)));
+  if(f===frontIdx) return;
+  frontIdx=f;
+  const c=lyrIn.children;
+  for(let i=0;i<c.length;i++){
+    const d=Math.abs(i-f);
+    c[i].className='ln v'+LY[i].voice+(d===0?' cur':d===1?' d1':d===2?' d2':'');
   }
 }
+function jumpTo(i){
+  i=Math.max(0,Math.min(LY.length-1,i));
+  curLine=i; lyrY=idxToY(i); renderLyr();
+  seek(LY[i].start-ofs()); if(!playing) toggle();
+}
+(function lyrGestures(){
+  const box=$('lyr');
+  box.addEventListener('pointerdown',e=>{
+    lyrDrag={y:e.clientY,base:lyrY,moved:0,el:e.target.closest('.ln')}; box.classList.add('grab');
+    box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener('pointermove',e=>{
+    if(!lyrDrag) return;
+    const dy=e.clientY-lyrDrag.y;
+    lyrDrag.moved=Math.max(lyrDrag.moved,Math.abs(dy));
+    lyrY=Math.max(idxToY(LY.length-1)-30,Math.min(idxToY(0)+30,lyrDrag.base+dy));
+    renderLyr();
+  });
+  const end=e=>{
+    if(!lyrDrag) return;
+    const tap=lyrDrag.moved<6, el=lyrDrag.el;
+    lyrDrag=null; box.classList.remove('grab');
+    jumpTo(tap&&el ? +el.dataset.i : frontIdx);
+  };
+  box.addEventListener('pointerup',end);
+  box.addEventListener('pointercancel',()=>{ lyrDrag=null; box.classList.remove('grab'); });
+})();
 function buildIndex(){
   const b=$('idx'); b.innerHTML='';
   LY.forEach((L,i)=>{ const d=document.createElement('div'); d.className='it'; d.dataset.i=i;
     d.innerHTML=`<span class="g g${L.voice}">${({M:'男',F:'女',H:'合'})[L.voice]}</span>`
       +`<span>${L.text}</span><span class="t">${fmt(L.start)}</span>`;
-    d.onclick=()=>{ seek(L.start-ofs()); if(!playing)toggle(); $('shIdx').classList.remove('on'); };
+    d.onclick=()=>{ jumpTo(i); $('shIdx').classList.remove('on'); };
     b.appendChild(d); });
 }
 const ofs=()=>(+$('ofs').value)/1000;
@@ -356,6 +397,30 @@ for(let i=0;i<NF;i++){
 }
 const QM=quantize(PM,ALM), QF=quantize(PF,ALF), QD=quantize(PDU,ALD);
 /* --- 同音高的连续帧合成一条小横条 --- */
+const SHORT=Math.round(.125*FPS);   // 1/8 秒
+const NEAR=Math.round(.30*FPS);     // 相邻判定：空隙不超过 0.3 秒
+function mergeShort(list){
+  for(;;){
+    let k=-1,best=1e9;
+    for(let i=0;i<list.length;i++){
+      if(list[i].keep) continue;
+      const d=list[i].e-list[i].s;
+      if(d<=SHORT&&d<best){ best=d; k=i; }
+    }
+    if(k<0) break;
+    const o=list[k], L=k>0?list[k-1]:null, R=k<list.length-1?list[k+1]:null;
+    const okL=L&&(o.s-L.e)<=NEAR, okR=R&&(R.s-o.e)<=NEAR;
+    if(!okL&&!okR){ o.keep=true; continue; }
+    let pick;
+    if(okL&&okR){
+      const dL=Math.abs(L.m-o.m), dR=Math.abs(R.m-o.m);
+      pick = dL<dR ? L : dR<dL ? R : ((L.e-L.s)>=(R.e-R.s)?L:R);   // 音高等距时并入更长的那条
+    } else pick = okL?L:R;
+    if(pick===L) L.e=Math.max(L.e,o.e); else R.s=Math.min(R.s,o.s);
+    list.splice(k,1);
+  }
+  return list.filter(o=>o.e-o.s>=2);   // 孤立且不足 50ms 的当噪点丢掉
+}
 function toSegs(q,skipDup){
   const out=[]; let cur=null;
   for(let i=0;i<NF;i++){
@@ -365,21 +430,33 @@ function toSegs(q,skipDup){
     else { if(cur)out.push(cur); cur={s:i,e:i+1,m:v}; }
   }
   if(cur)out.push(cur);
-  return out.filter(o=>o.e-o.s>=3);        // 短于 75ms 的丢掉
+  return mergeShort(out);
 }
 const SM=toSegs(QM,true), SF=toSegs(QF,true), SD=toSegs(QD,false);
 
-function rr(x,y,w,h,c){ g.fillStyle=c; g.beginPath();
-  if(g.roundRect) g.roundRect(x,y,w,h,Math.min(h/2,Math.max(w/2,.5))); else g.rect(x,y,w,h);
+function rr(x,w,y,c){ g.fillStyle=c; g.beginPath();
+  if(g.roundRect) g.roundRect(x,y-2.5,w,5,Math.min(2.5,Math.max(w/2,.5))); else g.rect(x,y-2.5,w,5);
   g.fill(); }
-function drawSegs(S,now,c1,c2){
+function braid(xa,xb,y,x0){       // 红蓝双线相绞；相位锚在 x0，滚动时花纹不漂
+  const A=3.1, P=13;
+  for(const [c,ph] of [['#5b9cff',0],['#ff6b8a',Math.PI]]){
+    g.strokeStyle=c; g.lineWidth=2.2; g.lineCap='round'; g.beginPath();
+    let first=true;
+    for(let x=xa;x<=xb+1.4;x+=1.4){
+      const xx=Math.min(x,xb), yy=y+A*Math.sin((xx-x0)/P*6.2832+ph);
+      first?(g.moveTo(xx,yy),first=false):g.lineTo(xx,yy);
+    }
+    g.stroke();
+  }
+}
+function drawSegs(S,now,c1,twist){
   const lo=now-WINs()*PLAYX-.6, hi=now+WINs()*(1-PLAYX)+.6;
   for(const o of S){
     const a=o.s/FPS, b=o.e/FPS;
     if(b<lo) continue; if(a>hi) break;
-    const x1=t2x(a,now), w=Math.max(t2x(b,now)-x1,3.5), y=p2y(o.m);
-    if(c2){ rr(x1,y-3,w,3,c1); rr(x1,y,w,3,c2); }
-    else rr(x1,y-2.5,w,5,c1);
+    const x1=t2x(a,now), x2=Math.max(t2x(b,now),x1+3.5), y=p2y(o.m);
+    if(twist) braid(Math.max(x1,-20),Math.min(x2,W+20),y,x1);
+    else rr(x1,x2-x1,y,c1);
   }
 }
 function drawRun(arr,color,now,lw){          // 连续曲线，只给"你的音高"用
@@ -410,6 +487,23 @@ function rangeFor(now){
   return [lo,hi];
 }
 let mine=new Float32Array(Math.ceil(DUR*FPS)).fill(NaN);
+let rollDrag=null;
+(function rollGestures(){
+  cv.addEventListener('pointerdown',e=>{
+    rollDrag={x:e.clientX,t:position(),was:playing};
+    if(playing) pause();
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!rollDrag) return;
+    pos=Math.max(0,Math.min(DUR, rollDrag.t-(e.clientX-rollDrag.x)/(W/WINs())));
+    curLine=-1;
+  });
+  const end=()=>{ if(!rollDrag) return; const was=rollDrag.was; rollDrag=null;
+    if(was) startAll(pos); };
+  cv.addEventListener('pointerup',end);
+  cv.addEventListener('pointercancel',end);
+})();
 const GFONT='9px -apple-system,system-ui,sans-serif';
 function paint(){
   const now=position()+ofs();
@@ -435,7 +529,7 @@ function paint(){
   for(let i=a;i<=b;i++){ const d=i<b&&isDup(i);
     if(d&&s0<0)s0=i; if(!d&&s0>=0){ g.fillRect(t2x(s0/FPS,now),0,(i-s0)/FPS*W/WINs(),H); s0=-1; } }
   drawSegs(SM,now,'#5b9cff'); drawSegs(SF,now,'#ff6b8a');
-  drawSegs(SD,now,'#5b9cff','#ff6b8a');
+  drawSegs(SD,now,null,true);
   drawRun(mine,'#ffc94d',now,3);
   const ci=lineAt(now);
   if(ci>=0){ g.fillStyle='rgba(224,163,74,.5)';
@@ -482,17 +576,21 @@ function micTick(){
 function tick(){
   const raw=position(), t=raw+ofs();
   if(playing){
-    if(loopMode===2&&curLine>=0&&raw>=LY[curLine].end-ofs()){ seek(LY[curLine].start-ofs()); }
+    if(loopLine&&curLine>=0&&raw>=LY[curLine].end-ofs()){ seek(LY[curLine].start-ofs()); }
     else if(raw>=DUR-.05){
-      if(loopMode===1){ mine.fill(NaN); curLine=-1; seek(0); }
+      if(loopAll){ mine.fill(NaN); curLine=-1; seek(0); }
       else { pause(); pos=0; } }
   }
   micTick();
   const ci=lineAt(t);
-  if(ci!==curLine && ci>=0){ curLine=ci; layoutLyrics(ci);
-    const el=$('idx').children[ci];
-    [...$('idx').children].forEach((e,k)=>e.classList.toggle('cur',k===ci));
-    if($('shIdx').classList.contains('on')&&el) el.scrollIntoView({block:'nearest'});
+  if(ci!==curLine && ci>=0){ curLine=ci;
+    const kids=$('idx').children;
+    for(let k=0;k<kids.length;k++) kids[k].classList.toggle('cur',k===ci);
+    if($('shIdx').classList.contains('on')&&kids[ci]) kids[ci].scrollIntoView({block:'nearest'});
+  }
+  if(!lyrDrag&&!rollDrag){
+    const tgt=idxToY(curLine>=0?curLine:nearestLine(t));
+    if(Math.abs(tgt-lyrY)>.4){ lyrY+=(tgt-lyrY)*.18; renderLyr(); }
   }
   $('tc').textContent=fmt(raw);
   const f=raw/DUR; $('barfill').style.width=(f*100)+'%';
@@ -512,10 +610,10 @@ document.querySelectorAll('.pt').forEach(el=>el.onclick=()=>{
   if(k==='acc'&&on.acc&&!vocKey()){ toast('至少留一个声部'); return; }
   on[k]=!on[k]; applyGains(+$('xf').value);
 });
-$('bLoop').onclick=e=>{ loopMode=(loopMode+1)%3; const b=e.currentTarget;
-  b.textContent=['↻ 关','↻ 全','↻ 句'][loopMode];
-  b.classList.toggle('on',loopMode>0);
-  toast(['循环关闭','整首循环','单句循环（当前句反复）'][loopMode]); };
+$('bLoopL').onclick=e=>{ loopLine=!loopLine; e.currentTarget.classList.toggle('on',loopLine);
+  toast(loopLine?(loopAll?'按句循环（优先于整曲）':'按句循环'):(loopAll?'整曲循环':'循环关闭')); };
+$('bLoopA').onclick=e=>{ loopAll=!loopAll; e.currentTarget.classList.toggle('on',loopAll);
+  toast(loopLine?'按句循环优先，整曲'+(loopAll?'已开':'已关'):(loopAll?'整曲循环':'循环关闭')); };
 $('bBack').onclick=()=>{ const t=position()+ofs(), i=lineAt(t);
   let k = i<0 ? nearestLine(t) : (t-LY[i].start>1.2 ? i : i-1);
   seek(LY[Math.max(0,Math.min(k,LY.length-1))].start-ofs()); };
@@ -555,7 +653,7 @@ document.addEventListener('keydown',e=>{
 
 /* ================= 启动 ================= */
 $('td').textContent=fmt(DUR);
-buildIndex(); resize(); layoutLyrics(0);
+buildLyr(); buildIndex(); resize(); lyrY=idxToY(0); renderLyr();
 requestAnimationFrame(tick);
 $('boot').addEventListener('click',()=>{ if(ctx&&ctx.state!=='running')ctx.resume(); });
 boot();
