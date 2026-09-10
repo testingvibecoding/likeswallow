@@ -139,7 +139,7 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
     <div id="rollTag">
       <i><span class="sw" style="background:var(--male)"></span>男</i>
       <i><span class="sw" style="background:var(--female)"></span>女</i>
-      <i><span class="sw" style="background:linear-gradient(90deg,var(--male) 50%,var(--female) 50%)"></span>不可分</i>
+      <i><span class="sw" style="background:linear-gradient(var(--male) 50%,var(--female) 50%)"></span>不可分</i>
       <i><span class="sw" style="background:var(--you)"></span>你</i>
     </div>
   </div>
@@ -175,8 +175,8 @@ h1{font-family:var(--lyric);font-size:19px;font-weight:700;margin:0;letter-spaci
   <div class="row"><label>切换淡化</label><input type="range" id="xf" min="0" max="150" value="30"><span class="v" id="xfV">30ms</span></div>
   <div class="row"><label>麦克风增益</label><input type="range" id="mg" min="1" max="20" value="5"><span class="v" id="mgV">×5</span></div>
   <div class="note">
-    单独听一个声部时电平已自动补偿：只留男声 +6dB，只留女声 +8dB。总线上有限幅器防止削波。<br>
-    音准条来自两条纯人声轨的逐帧基频。紫色双色段是分离工具未能拆开两人的地方（全曲约 48 秒），那里只有主导音高，不代表两人同音。<br>
+    单独听一个声部时电平已自动补偿：只留男声 +3dB，只留女声 +4dB。总线上有限幅器防止削波。<br>
+    音准条来自两条纯人声轨的逐帧基频，量化到最近的半音后画成小横条；只在该声部有词的时间段内显示。上蓝下红的双色条是分离工具未能拆开两人的地方（全曲约 48 秒），那里只有主导音高，不代表两人同音。<br>
     坐标按 1=D 标注。歌词偏移用来修正不同浏览器解码音频的起点差异。
   </div>
 </div></div>
@@ -212,7 +212,7 @@ const FPS=PD.fps;
 /* ================= 音频 ================= */
 const MOBILE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 let ctx,master,limiter,gain={},buf={},srcs={},playing=false,t0=0,pos=0;
-const BOOST={voc:1, male:Math.pow(10,6/20), female:Math.pow(10,8/20)};
+const BOOST={voc:1, male:Math.pow(10,3/20), female:Math.pow(10,4/20)};
 let on={acc:true,male:true,female:true};
 
 function mkCtx(){
@@ -280,7 +280,7 @@ function applyGains(ms){
   document.querySelectorAll('.pt').forEach(el=>{
     const k=el.dataset.k; el.classList.toggle('on',on[k]);
     el.querySelector('.s').textContent = on[k]
-      ? (k==='male'&&!on.female ? '+6dB' : k==='female'&&!on.male ? '+8dB' : '开') : '关';
+      ? (k==='male'&&!on.female ? '+3dB' : k==='female'&&!on.male ? '+4dB' : '开') : '关';
   });
 }
 
@@ -316,7 +316,7 @@ function fmt(t){ t=Math.max(0,t); return Math.floor(t/60)+':'+String(Math.floor(
 
 /* ================= 音准区 ================= */
 const cv=$('cv'), g=cv.getContext('2d');
-let W=0,H=0,DPR=1, yLo=48,yHi=72, yLoT=48,yHiT=72;
+let W=0,H=0,DPR=1, yLo=48,yHi=72;
 function resize(){ const r=cv.getBoundingClientRect(); DPR=Math.min(devicePixelRatio||1,2);
   cv.width=Math.round(r.width*DPR); cv.height=Math.round(r.height*DPR);
   W=r.width; H=r.height; g.setTransform(DPR,0,0,DPR,0,0); }
@@ -326,19 +326,64 @@ const PLAYX=.36;
 const t2x=(t,now)=>(t-now)*W/WINs()+W*PLAYX;
 const p2y=m=>H-14-(m-yLo)/(yHi-yLo)*(H-28);
 const DEG=['1','#1','2','#2','3','4','#4','5','#5','6','#6','7'];   // 1=D
-function rangeFor(now){
-  let lo=999,hi=0; const a=Math.max(0,Math.floor((now-WINs()*PLAYX)*FPS)),
-                        b=Math.min(PM.length,Math.ceil((now+WINs()*(1-PLAYX))*FPS));
-  for(let i=a;i<b;i++){ const m=PM[i],f=PF[i];
-    if(!isNaN(m)){lo=Math.min(lo,m);hi=Math.max(hi,m);} if(!isNaN(f)){lo=Math.min(lo,f);hi=Math.max(hi,f);} }
-  if(hi<=lo){ lo=54;hi=70; }
-  const pad=Math.max(2,(hi-lo)*.16); lo-=pad; hi+=pad;
-  if(hi-lo<9){ const c=(hi+lo)/2; lo=c-4.5; hi=c+4.5; }
-  return [lo,hi];
+const NF=PM.length;
+
+/* --- 只在该声部有词的时间段内显示：男看 男/合 句，女看 女/合 句 --- */
+const ALM=new Uint8Array(NF), ALF=new Uint8Array(NF);
+for(const L of LY){
+  const a=Math.max(0,Math.floor(L.start*FPS)), b=Math.min(NF,Math.ceil(L.end*FPS));
+  for(let i=a;i<b;i++){ if(L.voice!=='F') ALM[i]=1; if(L.voice!=='M') ALF[i]=1; }
 }
-function drawRun(arr,color,now,dash,off,lw){
-  g.strokeStyle=color; g.lineWidth=lw||4; g.lineCap='round'; g.lineJoin='round';
-  g.setLineDash(dash||[]); g.lineDashOffset=off||0;
+/* --- 量化到最近半音（±2 帧取众数，压掉颤音跨半音的抖动） --- */
+function quantize(arr,allow){
+  const q=new Int16Array(NF).fill(-999);
+  for(let i=0;i<NF;i++){
+    if(!allow[i]||isNaN(arr[i])) continue;
+    const cnt={}; let best=-999,bc=0;
+    for(let j=Math.max(0,i-2);j<=Math.min(NF-1,i+2);j++){
+      if(!allow[j]||isNaN(arr[j])) continue;
+      const v=Math.round(arr[j]); cnt[v]=(cnt[v]||0)+1;
+      if(cnt[v]>bc){bc=cnt[v];best=v;}
+    }
+    q[i]=best;
+  }
+  return q;
+}
+const PDU=new Float32Array(NF), ALD=new Uint8Array(NF);
+for(let i=0;i<NF;i++){
+  const d=isDup(i)&&(ALM[i]||ALF[i]);
+  ALD[i]=d?1:0; PDU[i]=d?(isNaN(PM[i])?PF[i]:PM[i]):NaN;
+}
+const QM=quantize(PM,ALM), QF=quantize(PF,ALF), QD=quantize(PDU,ALD);
+/* --- 同音高的连续帧合成一条小横条 --- */
+function toSegs(q,skipDup){
+  const out=[]; let cur=null;
+  for(let i=0;i<NF;i++){
+    const v=(skipDup&&isDup(i))?-999:q[i];
+    if(v===-999){ if(cur){out.push(cur);cur=null;} continue; }
+    if(cur&&cur.m===v&&i-cur.e<=2) cur.e=i+1;
+    else { if(cur)out.push(cur); cur={s:i,e:i+1,m:v}; }
+  }
+  if(cur)out.push(cur);
+  return out.filter(o=>o.e-o.s>=3);        // 短于 75ms 的丢掉
+}
+const SM=toSegs(QM,true), SF=toSegs(QF,true), SD=toSegs(QD,false);
+
+function rr(x,y,w,h,c){ g.fillStyle=c; g.beginPath();
+  if(g.roundRect) g.roundRect(x,y,w,h,Math.min(h/2,Math.max(w/2,.5))); else g.rect(x,y,w,h);
+  g.fill(); }
+function drawSegs(S,now,c1,c2){
+  const lo=now-WINs()*PLAYX-.6, hi=now+WINs()*(1-PLAYX)+.6;
+  for(const o of S){
+    const a=o.s/FPS, b=o.e/FPS;
+    if(b<lo) continue; if(a>hi) break;
+    const x1=t2x(a,now), w=Math.max(t2x(b,now)-x1,3.5), y=p2y(o.m);
+    if(c2){ rr(x1,y-3,w,3,c1); rr(x1,y,w,3,c2); }
+    else rr(x1,y-2.5,w,5,c1);
+  }
+}
+function drawRun(arr,color,now,lw){          // 连续曲线，只给"你的音高"用
+  g.strokeStyle=color; g.lineWidth=lw||3; g.lineCap='round'; g.lineJoin='round';
   const a=Math.max(0,Math.floor((now-WINs()*PLAYX-.2)*FPS)),
         b=Math.min(arr.length,Math.ceil((now+WINs()*(1-PLAYX)+.2)*FPS));
   let open=false;
@@ -349,48 +394,49 @@ function drawRun(arr,color,now,dash,off,lw){
     if(!open){ g.beginPath(); g.moveTo(x,y); open=true; } else g.lineTo(x,y);
   }
   if(open) g.stroke();
-  g.setLineDash([]);
+}
+function rangeFor(now){
+  let lo=999,hi=-999;
+  const a=Math.max(0,Math.floor((now-WINs()*PLAYX)*FPS)), b=Math.min(NF,Math.ceil((now+WINs()*(1-PLAYX))*FPS));
+  for(let i=a;i<b;i++){
+    const v1=QM[i],v2=QF[i],v3=QD[i];
+    if(v1>-900){if(v1<lo)lo=v1;if(v1>hi)hi=v1;}
+    if(v2>-900){if(v2<lo)lo=v2;if(v2>hi)hi=v2;}
+    if(v3>-900){if(v3<lo)lo=v3;if(v3>hi)hi=v3;}
+  }
+  if(hi<lo){ lo=56;hi=68; }
+  let pad=Math.max(2,(hi-lo)*.18); lo-=pad; hi+=pad;
+  if(hi-lo<9){ const c=(hi+lo)/2; lo=c-4.5; hi=c+4.5; }
+  return [lo,hi];
 }
 let mine=new Float32Array(Math.ceil(DUR*FPS)).fill(NaN);
-const dupM=new Float32Array(PM.length).fill(NaN), solM=new Float32Array(PM.length).fill(NaN),
-      solF=new Float32Array(PF.length).fill(NaN);
 const GFONT='9px -apple-system,system-ui,sans-serif';
 function paint(){
   const now=position()+ofs();
   const [lo,hi]=rangeFor(now);
-  yLoT=lo; yHiT=hi;
-  yLo+=(yLoT-yLo)*.12; yHi+=(yHiT-yHi)*.12;
+  yLo+=(lo-yLo)*.12; yHi+=(hi-yHi)*.12;
   g.clearRect(0,0,W,H);
-  /* 网格：D 大调音级 */
   for(let m=Math.ceil(yLo);m<=yHi;m++){
     const y=p2y(m), d=((m-62)%12+12)%12, isDo=d===0;
     g.strokeStyle=isDo?'#33405a':'#1b2434'; g.lineWidth=1;
     g.beginPath(); g.moveTo(30,y+.5); g.lineTo(W,y+.5); g.stroke();
-    if(hi-lo<26||isDo||d===4||d===7){
-      g.fillStyle=isDo?'#8ea3c4':'#4d5871'; g.font=GFONT;
-      g.textAlign='left'; g.fillText(DEG[d]+(isDo?' ('+(Math.round((m-62)/12)+4)+')':''),3,y+3);
+    if(yHi-yLo<26||isDo||d===4||d===7){
+      g.fillStyle=isDo?'#8ea3c4':'#4d5871'; g.font=GFONT; g.textAlign='left';
+      g.fillText(DEG[d]+(isDo?' ('+(Math.round((m-62)/12)+4)+')':''),3,y+3);
     }
   }
-  /* 竖线：当前位置 */
   const px=W*PLAYX;
   g.strokeStyle='#3b4763'; g.lineWidth=1;
   g.beginPath(); g.moveTo(px+.5,0); g.lineTo(px+.5,H); g.stroke();
   /* 不可分区底纹 */
-  const a=Math.max(0,Math.floor((now-WINs()*PLAYX)*FPS)),
-        b=Math.min(PM.length,Math.ceil((now+WINs()*(1-PLAYX))*FPS));
-  g.fillStyle='rgba(181,140,255,.09)';
+  const a=Math.max(0,Math.floor((now-WINs()*PLAYX)*FPS)), b=Math.min(NF,Math.ceil((now+WINs()*(1-PLAYX))*FPS));
+  g.fillStyle='rgba(181,140,255,.08)';
   let s0=-1;
   for(let i=a;i<=b;i++){ const d=i<b&&isDup(i);
     if(d&&s0<0)s0=i; if(!d&&s0>=0){ g.fillRect(t2x(s0/FPS,now),0,(i-s0)/FPS*W/WINs(),H); s0=-1; } }
-  /* 音高线 */
-  for(let i=a;i<b;i++){
-    if(isDup(i)){ dupM[i]=isNaN(PM[i])?PF[i]:PM[i]; solM[i]=NaN; solF[i]=NaN; }
-    else { dupM[i]=NaN; solM[i]=PM[i]; solF[i]=PF[i]; } }
-  drawRun(solM,'#5b9cff',now); drawRun(solF,'#ff6b8a',now);
-  drawRun(dupM,'#5b9cff',now,[9,9],0); drawRun(dupM,'#ff6b8a',now,[9,9],9);
-  /* 你的音高 */
-  drawRun(mine,'#ffc94d',now,null,0,3);
-  /* 当前句范围提示 */
+  drawSegs(SM,now,'#5b9cff'); drawSegs(SF,now,'#ff6b8a');
+  drawSegs(SD,now,'#5b9cff','#ff6b8a');
+  drawRun(mine,'#ffc94d',now,3);
   const ci=lineAt(now);
   if(ci>=0){ g.fillStyle='rgba(224,163,74,.5)';
     const x1=t2x(LY[ci].start,now), x2=t2x(LY[ci].end,now);
