@@ -603,18 +603,21 @@ function drawSegs(S,now,c1,twist){
     else rr(x1,x2-x1,y,c1);
   }
 }
-function drawRun(arr,color,now,lw){          // 连续曲线，只给"你的音高"用
+function drawRun(arr,color,now,lw,maxJump){  // 连续曲线，只给"你的音高"用
   g.strokeStyle=color; g.lineWidth=lw||3; g.lineCap='round'; g.lineJoin='round';
   const a=Math.max(0,Math.floor((now-WINs()*PLAYX-.2)*FPS)),
         b=Math.min(arr.length,Math.ceil((now+WINs()*(1-PLAYX)+.2)*FPS));
-  let open=false;
+  let open=false, prev=NaN, n=0;
+  const flush=()=>{ if(open){ if(n<2){ g.lineTo(g.__lx+1.2,g.__ly); } g.stroke(); } open=false; n=0; };
   for(let i=a;i<b;i++){
     const v=arr[i];
-    if(isNaN(v)){ if(open){g.stroke();open=false;} continue; }
+    if(isNaN(v)){ flush(); prev=NaN; continue; }
+    if(open&&maxJump&&Math.abs(v-prev)>maxJump) flush();   // 跳变过大就断，不连长竖线
     const x=t2x(i/FPS,now), y=p2y(v);
-    if(!open){ g.beginPath(); g.moveTo(x,y); open=true; } else g.lineTo(x,y);
+    if(!open){ g.beginPath(); g.moveTo(x,y); open=true; n=1; } else { g.lineTo(x,y); n++; }
+    g.__lx=x; g.__ly=y; prev=v;
   }
-  if(open) g.stroke();
+  flush();
 }
 function rangeFor(now){
   let lo=999,hi=-999;
@@ -680,7 +683,7 @@ function paint(){
   if(showM&&showF) drawSegs(SD,now,null,true);
   else if(showM)   drawSegs(SD,now,'#5b9cff');
   else if(showF)   drawSegs(SD,now,'#ff6b8a');
-  drawRun(mine,'#ffc94d',now,3);
+  drawRun(mine,'#ffc94d',now,3,10);
   const ci=lineAt(now);
   if(ci>=0){ g.fillStyle='rgba(224,163,74,.5)';
     const x1=t2x(LY[ci].start,now), x2=t2x(LY[ci].end,now);
@@ -691,7 +694,7 @@ function paint(){
 let micOn=false, ana=null, micBuf=null, micStream=null;
 async function micToggle(){
   if(micOn){ micOn=false; $('bMic').classList.remove('on');
-    if(micStream) micStream.getTracks().forEach(t=>t.stop()); micStream=null; ana=null;
+    if(micStream) micStream.getTracks().forEach(t=>t.stop()); micStream=null; ana=null; micPrev=NaN;
     $('micLv').textContent=''; $('micLv').classList.remove('hot'); return; }
   try{
     micStream=await navigator.mediaDevices.getUserMedia({audio:{
@@ -705,7 +708,7 @@ async function micToggle(){
   micOn=true; $('bMic').classList.add('on');
   toast('麦克风已开，左上角会显示输入电平');
 }
-let micLast=-1, micLvT=0;
+let micLast=-1, micLvT=0, micPrev=NaN, acBuf=null;
 function micTick(){
   if(!micOn||!ana) return;
   ana.getFloatTimeDomainData(micBuf);
@@ -721,17 +724,31 @@ function micTick(){
   const idx=Math.floor((position()+ofs())*FPS);
   if(idx<0||idx>=mine.length) return;
   if(rms<GATE){ mine[idx]=NaN; micLast=-1; return; }
-  const sr=ctx.sampleRate, minP=Math.max(2,Math.floor(sr/800)), maxP=Math.floor(sr/70);
-  let best=-1,bv=0;
+  const sr=ctx.sampleRate, minP=Math.max(2,Math.floor(sr/900)), maxP=Math.floor(sr/75);
+  if(!acBuf||acBuf.length<maxP+2) acBuf=new Float32Array(maxP+2);
+  let mx=0, mp=-1;
   for(let p=minP;p<=maxP;p++){
     let s=0, n=0;
     for(let i=0;i<N-p;i+=4){ s+=micBuf[i]*micBuf[i+p]; n++; }
-    s/=n;                                 // 之前除的是 (N-p)，而实际只累加了 1/4 的样点，
-    if(s>bv){ bv=s; best=p; }             // 结果自相关被压到真值的四分之一，有声判定永远不过
+    s/=n;                                 // 归一化必须按实际累加的点数，否则永远判为无声
+    acBuf[p]=s; if(s>mx){ mx=s; mp=p; }
   }
-  if(best<0||bv<rms*rms*.30){ mine[idx]=NaN; micLast=-1; return; }
-  const m=69+12*Math.log2((sr/best)/440);
-  if(m<36||m>96){ mine[idx]=NaN; micLast=-1; return; }
+  if(mp<0||mx<rms*rms*.30){ mine[idx]=NaN; micLast=-1; micPrev=NaN; return; }
+  // 次谐波抑制：从短周期一侧起，取第一个"接近最高峰且本身是局部极大"的周期。
+  // 自相关在两倍周期上常有同样高的峰，直接取全局最大会把音高报低一个八度，
+  // 线就会掉到画面底部再连出一条长竖线。
+  let best=mp;
+  for(let p=minP+1;p<mp;p++){
+    if(acBuf[p]>=mx*.86 && acBuf[p]>=acBuf[p-1] && acBuf[p]>=acBuf[p+1]){ best=p; break; }
+  }
+  let m=69+12*Math.log2((sr/best)/440);
+  if(!isNaN(micPrev)){                    // 连续性纠正：与上一帧差太多时，试试上下八度哪个更近
+    for(const d of [12,-12,24,-24]){
+      if(Math.abs(m-micPrev)>7 && Math.abs(m+d-micPrev)<Math.abs(m-micPrev)-4) m+=d;
+    }
+  }
+  if(m<38||m>93){ mine[idx]=NaN; micLast=-1; micPrev=NaN; return; }
+  micPrev=m;
   // 检测帧率(≈60Hz)与音准区帧格(40Hz)不同步，中间会漏格；把上一格到这一格之间补上，
   // 否则孤立的单点画不出线（画布上单点路径不着色）
   if(micLast>=0&&idx>micLast&&idx-micLast<=12) for(let k=micLast+1;k<idx;k++) mine[k]=m;
